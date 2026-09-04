@@ -3,7 +3,7 @@ version: "3.7"
 services:
   app_proxy:
     environment:
-      APP_HOST: widget-server
+      APP_HOST: widgets-clock-widget_widget-server_1
       APP_PORT: 3000
 
   widget-server:
