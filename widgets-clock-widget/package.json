@@ -1,0 +1,7 @@
+{
+  "name": "clock-widget",
+  "version": "1.0.0",
+  "private": true,
+  "module": "index.ts",
+  "type": "module"
+}
