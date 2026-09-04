@@ -1,0 +1,11 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: widget-server
+      APP_PORT: 3000
+
+  widget-server:
+    build: .
+    restart: on-failure
