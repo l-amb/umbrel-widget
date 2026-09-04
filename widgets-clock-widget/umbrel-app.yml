@@ -1,5 +1,5 @@
 manifestVersion: 1
-id: clock-widget
+id: widgets-clock-widget
 category: utilities
 name: Clock Widget
 version: "1.0.0"
