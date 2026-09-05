@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>cwidgets</title>
+<style>
+  body {
+    margin: 0;
+    padding: 40px 20px;
+    background: #0f1115;
+    color: #f2f2f2;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { text-align: center; font-weight: 600; }
+  p.lead { text-align: center; color: #9a9fa6; max-width: 480px; margin: 8px auto 40px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+  .card {
+    background: #1a1d24;
+    border-radius: 16px;
+    padding: 20px 24px;
+    width: 220px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+  }
+  .card .title { font-size: 13px; color: #9a9fa6; text-transform: uppercase; letter-spacing: 0.04em; }
+  .card .text { font-size: 28px; font-weight: 600; margin: 6px 0 2px; }
+  .card .subtext { font-size: 14px; color: #9a9fa6; }
+  .hint {
+    text-align: center;
+    margin-top: 48px;
+    color: #9a9fa6;
+    font-size: 14px;
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+</head>
+<body>
+  <h1>cwidgets</h1>
+  <p class="lead">A small collection of homepage widgets. Add any of the previews below to your umbrelOS home screen from the widget picker.</p>
+  <div class="grid" id="grid"></div>
+  <p class="hint">To add one: go to your umbrelOS home screen, click "Customize widgets", and choose from the cwidgets options.</p>
+
+  <script>
+    const widgetIds = ["clock", "date", "greeting"]
+
+    function makeCard(id) {
+      const card = document.createElement("div")
+      card.className = "card"
+      card.innerHTML = `
+        <div class="title" id="title-${id}"></div>
+        <div class="text" id="text-${id}"></div>
+        <div class="subtext" id="subtext-${id}"></div>
+      `
+      return card
+    }
+
+    const grid = document.getElementById("grid")
+    widgetIds.forEach((id) => grid.appendChild(makeCard(id)))
+
+    async function refresh(id) {
+      try {
+        const res = await fetch(`/widgets/${id}`)
+        const data = await res.json()
+        document.getElementById(`title-${id}`).textContent = data.title || ""
+        document.getElementById(`text-${id}`).textContent = data.text || ""
+        document.getElementById(`subtext-${id}`).textContent = data.subtext || ""
+      } catch (e) {}
+    }
+
+    function refreshAll() { widgetIds.forEach(refresh) }
+    refreshAll()
+    setInterval(refreshAll, 1000)
+  </script>
+</body>
+</html>
