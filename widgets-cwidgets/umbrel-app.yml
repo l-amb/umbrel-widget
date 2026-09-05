@@ -1,0 +1,54 @@
+manifestVersion: 1
+id: widgets-cwidgets
+category: utilities
+name: cwidgets
+version: "1.0.0"
+tagline: A small collection of homepage widgets for your umbrelOS dashboard
+description: >-
+  Adds a handful of lightweight widgets -- a clock, a date, and a greeting --
+  that can each be added individually to your umbrelOS home screen from the
+  widget picker. Open the app to preview them all on one page.
+developer: you
+website: https://github.com/l-amb/umbrel-widget
+repo: https://github.com/l-amb/umbrel-widget
+support: https://github.com/l-amb/umbrel-widget/issues
+port: 3000
+gallery:
+  - 1.jpg
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+widgets:
+  - id: "clock"
+    type: "text-with-buttons"
+    refresh: "1s"
+    endpoint: "widget-server:3000/widgets/clock"
+    link: ""
+    example:
+      type: "text-with-buttons"
+      link: ""
+      title: "Current Time"
+      text: "2:34 PM"
+      subtext: "Fri, Sep 5"
+  - id: "date"
+    type: "text-with-buttons"
+    refresh: "60s"
+    endpoint: "widget-server:3000/widgets/date"
+    link: ""
+    example:
+      type: "text-with-buttons"
+      link: ""
+      title: "Today"
+      text: "Friday"
+      subtext: "September 5, 2026"
+  - id: "greeting"
+    type: "text-with-buttons"
+    refresh: "60s"
+    endpoint: "widget-server:3000/widgets/greeting"
+    link: ""
+    example:
+      type: "text-with-buttons"
+      link: ""
+      title: "Good afternoon"
+      text: "2:34 PM"
+      subtext: "Have a great one"
