@@ -4,11 +4,13 @@ const START = Date.now()
 const DATA_DIR = "/data"
 const STATE_FILE = `${DATA_DIR}/state.json`
 
-type WidgetId = "clock" | "date" | "greeting" | "dayProgress" | "weekNumber" | "uptime"
+const SLOT_IDS = ["slot1", "slot2", "slot3"] as const
+type SlotId = typeof SLOT_IDS[number]
 
-const WIDGET_IDS: WidgetId[] = ["clock", "date", "greeting", "dayProgress", "weekNumber", "uptime"]
+type WidgetType = "clock" | "date" | "greeting" | "dayProgress" | "weekNumber" | "uptime"
+const WIDGET_TYPES: WidgetType[] = ["clock", "date", "greeting", "dayProgress", "weekNumber", "uptime"]
 
-const WIDGET_META: Record<WidgetId, { name: string; description: string }> = {
+const TYPE_META: Record<WidgetType, { name: string; description: string }> = {
   clock: { name: "Clock", description: "Live current time" },
   date: { name: "Date", description: "Today's day and date" },
   greeting: { name: "Greeting", description: "A friendly message based on the time of day" },
@@ -24,39 +26,45 @@ interface SettingDef {
   default: boolean
 }
 
-const WIDGET_SETTINGS: Partial<Record<WidgetId, SettingDef[]>> = {
+const TYPE_SETTINGS: Partial<Record<WidgetType, SettingDef[]>> = {
   clock: [
     { key: "showSeconds", label: "Show seconds", type: "boolean", default: true },
     { key: "use24Hour", label: "Use 24-hour time", type: "boolean", default: false },
   ],
 }
 
+interface SlotState {
+  type: WidgetType
+  settings: Record<string, boolean>
+}
+
 interface State {
-  installed: Record<string, boolean>
-  settings: Record<string, Record<string, boolean>>
+  slots: Record<SlotId, SlotState>
+}
+
+function defaultSlotState(type: WidgetType): SlotState {
+  const defs = TYPE_SETTINGS[type]
+  return { type, settings: defs ? Object.fromEntries(defs.map((d) => [d.key, d.default])) : {} }
 }
 
 function defaultState(): State {
-  const installed = Object.fromEntries(WIDGET_IDS.map((id) => [id, true]))
-  const settings: Record<string, Record<string, boolean>> = {}
-  for (const id of WIDGET_IDS) {
-    const defs = WIDGET_SETTINGS[id]
-    if (defs) settings[id] = Object.fromEntries(defs.map((d) => [d.key, d.default]))
+  const defaults: WidgetType[] = ["clock", "date", "greeting"]
+  return {
+    slots: Object.fromEntries(SLOT_IDS.map((id, i) => [id, defaultSlotState(defaults[i])])) as Record<SlotId, SlotState>,
   }
-  return { installed, settings }
 }
 
-function mergeWithDefaults(loaded: Partial<State>): State {
+function mergeWithDefaults(loaded: any): State {
   const base = defaultState()
-  return {
-    installed: { ...base.installed, ...(loaded.installed || {}) },
-    settings: Object.fromEntries(
-      WIDGET_IDS.map((id) => [
-        id,
-        { ...(base.settings[id] || {}), ...((loaded.settings || {})[id] || {}) },
-      ])
-    ),
+  const slots: Record<string, SlotState> = {}
+  for (const id of SLOT_IDS) {
+    const loadedSlot = loaded?.slots?.[id]
+    const type: WidgetType = WIDGET_TYPES.includes(loadedSlot?.type) ? loadedSlot.type : base.slots[id].type
+    const defs = TYPE_SETTINGS[type]
+    const defaultSettings = defs ? Object.fromEntries(defs.map((d) => [d.key, d.default])) : {}
+    slots[id] = { type, settings: { ...defaultSettings, ...(loadedSlot?.settings || {}) } }
   }
+  return { slots: slots as Record<SlotId, SlotState> }
 }
 
 async function loadState(): Promise<State> {
@@ -112,10 +120,9 @@ function formatClockTime(d: Date, settings: Record<string, boolean>) {
   })
 }
 
-function widgetPayload(id: WidgetId): any {
+function renderType(type: WidgetType, settings: Record<string, boolean>): any {
   const p = nowParts()
-  const settings = state.settings[id] || {}
-  switch (id) {
+  switch (type) {
     case "clock":
       return {
         type: "text-with-buttons",
@@ -149,15 +156,17 @@ function widgetPayload(id: WidgetId): any {
   }
 }
 
-function widgetListPayload() {
-  return WIDGET_IDS.map((id) => ({
-    id,
-    ...WIDGET_META[id],
-    installed: !!state.installed[id],
-    settingsSchema: WIDGET_SETTINGS[id] || [],
-    settings: state.settings[id] || {},
-    preview: widgetPayload(id),
-  }))
+function slotListPayload() {
+  return SLOT_IDS.map((id) => {
+    const slot = state.slots[id]
+    return {
+      id,
+      type: slot.type,
+      settingsSchema: TYPE_SETTINGS[slot.type] || [],
+      settings: slot.settings,
+      preview: renderType(slot.type, slot.settings),
+    }
+  })
 }
 
 const server = Bun.serve({
@@ -165,55 +174,43 @@ const server = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url)
 
-    const widgetMatch = url.pathname.match(/^\/widgets\/([a-zA-Z]+)$/)
-    if (widgetMatch) {
-      const id = widgetMatch[1] as WidgetId
-      if (!WIDGET_IDS.includes(id)) return new Response("Not found", { status: 404 })
-      if (!state.installed[id]) {
-        return Response.json({
-          type: "text-with-buttons",
-          refresh: "60s",
-          link: "",
-          title: WIDGET_META[id].name,
-          text: "Not installed",
-          subtext: "Install it from the cwidgets gallery",
-        })
-      }
-      return Response.json(widgetPayload(id))
+    const slotMatch = url.pathname.match(/^\/widgets\/(slot[123])$/)
+    if (slotMatch) {
+      const id = slotMatch[1] as SlotId
+      const slot = state.slots[id]
+      return Response.json(renderType(slot.type, slot.settings))
     }
 
-    if (url.pathname === "/api/widgets" && req.method === "GET") {
-      return Response.json(widgetListPayload())
+    if (url.pathname === "/api/slots" && req.method === "GET") {
+      return Response.json({
+        slots: slotListPayload(),
+        types: WIDGET_TYPES.map((t) => ({ id: t, ...TYPE_META[t], settingsSchema: TYPE_SETTINGS[t] || [] })),
+      })
     }
 
-    if (url.pathname.match(/^\/api\/widgets\/[a-zA-Z]+\/install$/) && req.method === "POST") {
-      const id = url.pathname.split("/")[3] as WidgetId
-      if (!WIDGET_IDS.includes(id)) return new Response("Not found", { status: 404 })
-      state.installed[id] = true
+    const typeMatch = url.pathname.match(/^\/api\/slots\/(slot[123])\/type$/)
+    if (typeMatch && req.method === "POST") {
+      const id = typeMatch[1] as SlotId
+      const body = await req.json().catch(() => ({}))
+      const newType = body.type as WidgetType
+      if (!WIDGET_TYPES.includes(newType)) return new Response("Invalid type", { status: 400 })
+      state.slots[id] = defaultSlotState(newType)
       await saveState(state)
-      return Response.json({ id, installed: true })
+      return Response.json({ id, type: newType })
     }
 
-    if (url.pathname.match(/^\/api\/widgets\/[a-zA-Z]+\/uninstall$/) && req.method === "POST") {
-      const id = url.pathname.split("/")[3] as WidgetId
-      if (!WIDGET_IDS.includes(id)) return new Response("Not found", { status: 404 })
-      state.installed[id] = false
-      await saveState(state)
-      return Response.json({ id, installed: false })
-    }
-
-    if (url.pathname.match(/^\/api\/widgets\/[a-zA-Z]+\/settings$/) && req.method === "POST") {
-      const id = url.pathname.split("/")[3] as WidgetId
-      if (!WIDGET_IDS.includes(id)) return new Response("Not found", { status: 404 })
-      const defs = WIDGET_SETTINGS[id]
+    const settingsMatch = url.pathname.match(/^\/api\/slots\/(slot[123])\/settings$/)
+    if (settingsMatch && req.method === "POST") {
+      const id = settingsMatch[1] as SlotId
+      const slot = state.slots[id]
+      const defs = TYPE_SETTINGS[slot.type]
       if (!defs) return new Response("No settings for this widget", { status: 400 })
       const body = await req.json().catch(() => ({}))
-      state.settings[id] = state.settings[id] || {}
       for (const def of defs) {
-        if (def.key in body) state.settings[id][def.key] = !!body[def.key]
+        if (def.key in body) slot.settings[def.key] = !!body[def.key]
       }
       await saveState(state)
-      return Response.json({ id, settings: state.settings[id] })
+      return Response.json({ id, settings: slot.settings })
     }
 
     if (url.pathname === "/" || url.pathname === "/index.html") {
