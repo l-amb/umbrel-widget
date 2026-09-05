@@ -3,17 +3,18 @@ id: widgets-cwidgets
 category: utilities
 name: cwidgets
 version: "1.0.1"
-icon: https://raw.githubusercontent.com/l-amb/umbrel-widget/master/widgets-cwidgets/icon.svg
-tagline: A small collection of homepage widgets for your umbrelOS dashboard
+tagline: A gallery of lightweight widgets for your umbrelOS dashboard
 description: >-
-  Adds a handful of lightweight widgets -- a clock, a date, and a greeting --
-  that can each be added individually to your umbrelOS home screen from the
-  widget picker. Open the app to preview them all on one page.
+  A small gallery of homepage widgets -- clock, date, greeting, day progress,
+  week number, and widget uptime. Open the app to install/uninstall the ones
+  you want, then add them individually to your home screen from umbrelOS's
+  widget picker.
 developer: you
 website: https://github.com/l-amb/umbrel-widget
 repo: https://github.com/l-amb/umbrel-widget
 support: https://github.com/l-amb/umbrel-widget/issues
 port: 3000
+icon: https://raw.githubusercontent.com/l-amb/umbrel-widget/master/widgets-cwidgets/icon.svg
 gallery:
   - 1.jpg
 path: ""
@@ -25,31 +26,34 @@ widgets:
     refresh: "1s"
     endpoint: "widget-server:3000/widgets/clock"
     link: ""
-    example:
-      type: "text-with-buttons"
-      link: ""
-      title: "Current Time"
-      text: "2:34 PM"
-      subtext: "Fri, Sep 5"
+    example: { type: "text-with-buttons", link: "", title: "Current Time", text: "2:34 PM", subtext: "Fri, Sep 5" }
   - id: "date"
     type: "text-with-buttons"
     refresh: "60s"
     endpoint: "widget-server:3000/widgets/date"
     link: ""
-    example:
-      type: "text-with-buttons"
-      link: ""
-      title: "Today"
-      text: "Friday"
-      subtext: "September 5, 2026"
+    example: { type: "text-with-buttons", link: "", title: "Today", text: "Friday", subtext: "September 5, 2026" }
   - id: "greeting"
     type: "text-with-buttons"
     refresh: "60s"
     endpoint: "widget-server:3000/widgets/greeting"
     link: ""
-    example:
-      type: "text-with-buttons"
-      link: ""
-      title: "Good afternoon"
-      text: "2:34 PM"
-      subtext: "Have a great one"
+    example: { type: "text-with-buttons", link: "", title: "Good afternoon", text: "2:34 PM", subtext: "Have a great one" }
+  - id: "dayProgress"
+    type: "text-with-buttons"
+    refresh: "60s"
+    endpoint: "widget-server:3000/widgets/dayProgress"
+    link: ""
+    example: { type: "text-with-buttons", link: "", title: "Day Progress", text: "62%", subtext: "of today gone" }
+  - id: "weekNumber"
+    type: "text-with-buttons"
+    refresh: "3600s"
+    endpoint: "widget-server:3000/widgets/weekNumber"
+    link: ""
+    example: { type: "text-with-buttons", link: "", title: "Week Number", text: "Week 36", subtext: "2026" }
+  - id: "uptime"
+    type: "text-with-buttons"
+    refresh: "30s"
+    endpoint: "widget-server:3000/widgets/uptime"
+    link: ""
+    example: { type: "text-with-buttons", link: "", title: "Widget Uptime", text: "4h 12m", subtext: "since last restart" }
