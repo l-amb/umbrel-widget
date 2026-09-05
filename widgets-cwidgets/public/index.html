@@ -4,57 +4,141 @@
 <meta charset="utf-8" />
 <title>cwidgets</title>
 <style>
-  body { margin: 0; padding: 40px 20px; background: #0f1115; color: #f2f2f2; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  h1 { text-align: center; font-weight: 600; margin-bottom: 4px; }
-  p.lead { text-align: center; color: #9a9fa6; max-width: 560px; margin: 8px auto 40px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; max-width: 900px; margin: 0 auto; }
-  .card { background: #1a1d24; border-radius: 16px; padding: 20px 22px; box-shadow: 0 4px 14px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 12px; }
-  .card .slot-name { font-weight: 600; font-size: 13px; color: #9a9fa6; text-transform: uppercase; letter-spacing: 0.04em; }
-  select { background: #0f1115; color: #f2f2f2; border: 1px solid #2a2e37; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
-  .preview { background: #0f1115; border-radius: 10px; padding: 14px; }
-  .preview .title { font-size: 11px; color: #9a9fa6; text-transform: uppercase; letter-spacing: 0.04em; }
-  .preview .text { font-size: 22px; font-weight: 600; margin: 4px 0 2px; }
-  .preview .subtext { font-size: 12px; color: #9a9fa6; }
-  .settings { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #2a2e37; padding-top: 10px; }
-  .settings label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #cfd3d9; cursor: pointer; }
-  .hint { text-align: center; margin-top: 48px; color: #9a9fa6; font-size: 13px; max-width: 560px; margin-left: auto; margin-right: auto; line-height: 1.5; }
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 56px 20px 80px;
+    background: radial-gradient(circle at 50% -10%, #1b1f2a 0%, #0b0d12 55%);
+    color: #f2f2f2;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  h1 { text-align: center; font-weight: 700; font-size: 34px; letter-spacing: -0.02em; margin-bottom: 6px; }
+  p.lead { text-align: center; color: #9a9fa6; max-width: 520px; margin: 0 auto 48px; line-height: 1.5; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; max-width: 960px; margin: 0 auto; }
+  .card {
+    background: #14161c;
+    border: 1px solid #22252d;
+    border-radius: 20px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .card:hover { transform: translateY(-2px); border-color: #333844; }
+  .slot-name { font-weight: 700; font-size: 12px; color: #6b7078; text-transform: uppercase; letter-spacing: 0.08em; }
+  select.type-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background: #1c1f27 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239a9fa6'/%3E%3C/svg%3E") no-repeat right 14px center;
+    color: #f2f2f2;
+    border: 1px solid #2a2e37;
+    border-radius: 10px;
+    padding: 10px 32px 10px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .preview {
+    border-radius: 16px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    min-height: 92px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  }
+  .preview::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.18);
+  }
+  .preview > * { position: relative; z-index: 1; }
+  .preview .title { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.85); text-transform: uppercase; letter-spacing: 0.04em; }
+  .preview .text { font-size: 24px; font-weight: 700; color: #ffffff; margin: 5px 0 2px; letter-spacing: -0.01em; }
+  .preview .subtext { font-size: 13px; color: rgba(255,255,255,0.75); font-weight: 600; }
+  .settings { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid #22252d; padding-top: 14px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .field label.text-label { font-size: 13px; color: #cfd3d9; font-weight: 500; }
+  .switch { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .track {
+    position: absolute; inset: 0; background: #2a2e37; border-radius: 999px; cursor: pointer; transition: background 0.15s ease;
+  }
+  .switch .track::before {
+    content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: transform 0.15s ease;
+  }
+  .switch input:checked + .track { background: #3b82f6; }
+  .switch input:checked + .track::before { transform: translateX(18px); }
+  select.field-select, input.field-input {
+    background: #1c1f27; color: #f2f2f2; border: 1px solid #2a2e37; border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%;
+  }
+  input.field-input::placeholder { color: #6b7078; }
+  .hint { text-align: center; margin-top: 48px; color: #6b7078; font-size: 13px; max-width: 560px; margin-left: auto; margin-right: auto; line-height: 1.6; }
 </style>
 </head>
 <body>
   <h1>cwidgets</h1>
-  <p class="lead">umbrelOS gives you 3 cwidgets slots on your home screen. Pick what each one shows below.</p>
+  <p class="lead">umbrelOS gives you 3 cwidgets slots on your home screen. Pick what each one shows, and tune it below.</p>
   <div class="grid" id="grid"></div>
   <p class="hint">Changes here take effect on your home screen automatically — no need to re-add the widgets after switching their type.</p>
 
   <script>
     let types = []
 
-    function settingsBlock(slot) {
-      if (!slot.settingsSchema.length) return ""
-      const rows = slot.settingsSchema.map((s) => `
-        <label>
-          <input type="checkbox" data-key="${s.key}" ${slot.settings[s.key] ? "checked" : ""} />
-          ${s.label}
-        </label>
-      `).join("")
-      return `<div class="settings">${rows}</div>`
+    function fieldHTML(slotId, def, value) {
+      if (def.type === "boolean") {
+        return `
+          <div class="field-row">
+            <span class="text-label">${def.label}</span>
+            <label class="switch">
+              <input type="checkbox" data-key="${def.key}" data-type="boolean" ${value ? "checked" : ""} />
+              <span class="track"></span>
+            </label>
+          </div>
+        `
+      }
+      if (def.type === "select") {
+        const opts = def.options.map((o) => `<option value="${o.value}" ${o.value === value ? "selected" : ""}>${o.label}</option>`).join("")
+        return `
+          <div class="field">
+            <span class="text-label">${def.label}</span>
+            <select class="field-select" data-key="${def.key}" data-type="select">${opts}</select>
+          </div>
+        `
+      }
+      return `
+        <div class="field">
+          <span class="text-label">${def.label}</span>
+          <input class="field-input" type="text" data-key="${def.key}" data-type="text" value="${value || ""}" placeholder="e.g. Alex" />
+        </div>
+      `
     }
 
     function renderCard(slot, index) {
       const card = document.createElement("div")
       card.className = "card"
       const options = types.map((t) => `<option value="${t.id}" ${t.id === slot.type ? "selected" : ""}>${t.name}</option>`).join("")
+      const fields = slot.settingsSchema.map((def) => fieldHTML(slot.id, def, slot.settings[def.key])).join("")
+
       card.innerHTML = `
         <div class="slot-name">Slot ${index + 1}</div>
-        <select data-slot="${slot.id}">${options}</select>
-        <div class="preview">
+        <select class="type-select" data-slot="${slot.id}">${options}</select>
+        <div class="preview" style="background: ${slot.accent}">
           <div class="title">${slot.preview.title}</div>
           <div class="text">${slot.preview.text}</div>
           <div class="subtext">${slot.preview.subtext}</div>
         </div>
-        ${settingsBlock(slot)}
+        ${slot.settingsSchema.length ? `<div class="settings">${fields}</div>` : ""}
       `
-      card.querySelector("select").addEventListener("change", async (e) => {
+
+      card.querySelector(".type-select").addEventListener("change", async (e) => {
         await fetch(`/api/slots/${slot.id}/type`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -62,21 +146,30 @@
         })
         refresh()
       })
-      card.querySelectorAll('input[type="checkbox"]').forEach((box) => {
-        box.addEventListener("change", async (e) => {
+
+      card.querySelectorAll("[data-key]").forEach((el) => {
+        const eventName = el.tagName === "SELECT" || el.getAttribute("type") === "text" ? "change" : "change"
+        el.addEventListener(eventName, async (e) => {
           const key = e.target.getAttribute("data-key")
+          const type = e.target.getAttribute("data-type")
+          const value = type === "boolean" ? e.target.checked : e.target.value
           await fetch(`/api/slots/${slot.id}/settings`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ [key]: e.target.checked }),
+            body: JSON.stringify({ [key]: value }),
           })
           refresh()
         })
       })
+
       return card
     }
 
     async function refresh() {
+      const active = document.activeElement
+      const isTyping = active && active.tagName === "INPUT" && active.getAttribute("type") === "text"
+      if (isTyping) return // don't yank focus/redraw while someone's typing a name
+
       const res = await fetch("/api/slots")
       const data = await res.json()
       types = data.types
