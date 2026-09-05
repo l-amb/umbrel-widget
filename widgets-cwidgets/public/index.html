@@ -15,7 +15,21 @@
     min-height: 100vh;
   }
   h1 { text-align: center; font-weight: 700; font-size: 34px; letter-spacing: -0.02em; margin-bottom: 6px; }
-  p.lead { text-align: center; color: #9a9fa6; max-width: 520px; margin: 0 auto 48px; line-height: 1.5; }
+  p.lead { text-align: center; color: #9a9fa6; max-width: 520px; margin: 0 auto 32px; line-height: 1.5; }
+  .general {
+    max-width: 320px;
+    margin: 0 auto 48px;
+    background: #14161c;
+    border: 1px solid #22252d;
+    border-radius: 16px;
+    padding: 18px 20px;
+  }
+  .general .label { font-size: 12px; font-weight: 700; color: #6b7078; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .general .row { display: flex; align-items: center; gap: 10px; }
+  .general input.offset-input {
+    background: #1c1f27; color: #f2f2f2; border: 1px solid #2a2e37; border-radius: 8px; padding: 8px 10px; font-size: 14px; width: 90px;
+  }
+  .general .hint-small { font-size: 12px; color: #6b7078; margin-top: 8px; line-height: 1.4; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; max-width: 960px; margin: 0 auto; }
   .card {
     background: #14161c;
@@ -60,7 +74,7 @@
   }
   .preview > * { position: relative; z-index: 1; }
   .preview .title { font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.85); text-transform: uppercase; letter-spacing: 0.04em; }
-  .preview .text { font-size: 24px; font-weight: 700; color: #ffffff; margin: 5px 0 2px; letter-spacing: -0.01em; }
+  .preview .text { font-size: 22px; font-weight: 700; color: #ffffff; margin: 5px 0 2px; letter-spacing: -0.01em; white-space: pre-line; }
   .preview .subtext { font-size: 13px; color: rgba(255,255,255,0.75); font-weight: 600; }
   .settings { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid #22252d; padding-top: 14px; }
   .field { display: flex; flex-direction: column; gap: 6px; }
@@ -86,13 +100,23 @@
 <body>
   <h1>cwidgets</h1>
   <p class="lead">umbrelOS gives you 3 cwidgets slots on your home screen. Pick what each one shows, and tune it below.</p>
+
+  <div class="general">
+    <div class="label">General</div>
+    <div class="row">
+      <label class="text-label" for="offset">UTC offset (hours)</label>
+      <input class="offset-input" id="offset" type="number" step="0.25" />
+    </div>
+    <div class="hint-small">e.g. 10 for Brisbane/AEST, -5 for New York (EST). Used by all time-based widgets.</div>
+  </div>
+
   <div class="grid" id="grid"></div>
   <p class="hint">Changes here take effect on your home screen automatically — no need to re-add the widgets after switching their type.</p>
 
   <script>
     let types = []
 
-    function fieldHTML(slotId, def, value) {
+    function fieldHTML(def, value) {
       if (def.type === "boolean") {
         return `
           <div class="field-row">
@@ -125,7 +149,7 @@
       const card = document.createElement("div")
       card.className = "card"
       const options = types.map((t) => `<option value="${t.id}" ${t.id === slot.type ? "selected" : ""}>${t.name}</option>`).join("")
-      const fields = slot.settingsSchema.map((def) => fieldHTML(slot.id, def, slot.settings[def.key])).join("")
+      const fields = slot.settingsSchema.map((def) => fieldHTML(def, slot.settings[def.key])).join("")
 
       card.innerHTML = `
         <div class="slot-name">Slot ${index + 1}</div>
@@ -148,8 +172,7 @@
       })
 
       card.querySelectorAll("[data-key]").forEach((el) => {
-        const eventName = el.tagName === "SELECT" || el.getAttribute("type") === "text" ? "change" : "change"
-        el.addEventListener(eventName, async (e) => {
+        el.addEventListener("change", async (e) => {
           const key = e.target.getAttribute("data-key")
           const type = e.target.getAttribute("data-type")
           const value = type === "boolean" ? e.target.checked : e.target.value
@@ -167,16 +190,30 @@
 
     async function refresh() {
       const active = document.activeElement
-      const isTyping = active && active.tagName === "INPUT" && active.getAttribute("type") === "text"
-      if (isTyping) return // don't yank focus/redraw while someone's typing a name
+      const isTyping = active && active.tagName === "INPUT" && (active.getAttribute("type") === "text" || active.getAttribute("type") === "number")
+      if (isTyping) return
 
       const res = await fetch("/api/slots")
       const data = await res.json()
       types = data.types
+
+      document.getElementById("offset").value = data.global.utcOffsetHours
+
       const grid = document.getElementById("grid")
       grid.innerHTML = ""
       data.slots.forEach((slot, i) => grid.appendChild(renderCard(slot, i)))
     }
+
+    document.getElementById("offset").addEventListener("change", async (e) => {
+      const value = parseFloat(e.target.value)
+      if (!Number.isFinite(value)) return
+      await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ utcOffsetHours: value }),
+      })
+      refresh()
+    })
 
     refresh()
     setInterval(refresh, 2000)
