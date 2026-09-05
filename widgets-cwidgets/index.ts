@@ -11,12 +11,12 @@ type WidgetType = "clock" | "date" | "greeting" | "dayProgress" | "weekNumber" |
 const WIDGET_TYPES: WidgetType[] = ["clock", "date", "greeting", "dayProgress", "weekNumber", "uptime"]
 
 const TYPE_META: Record<WidgetType, { name: string; description: string; accent: string }> = {
-  clock: { name: "🕐 Clock", description: "Live current time", accent: "linear-gradient(135deg,#f7b733,#fc4a1a)" },
-  date: { name: "📅 Date", description: "Today's day and date", accent: "linear-gradient(135deg,#4facfe,#00f2fe)" },
-  greeting: { name: "👋 Greeting", description: "A friendly message based on the time of day", accent: "linear-gradient(135deg,#ff9a9e,#fad0c4)" },
-  dayProgress: { name: "📊 Day Progress", description: "How much of today has gone by", accent: "linear-gradient(135deg,#43cea2,#185a9d)" },
-  weekNumber: { name: "🗓️ Week Number", description: "The current ISO week of the year", accent: "linear-gradient(135deg,#8e2de2,#4a00e0)" },
-  uptime: { name: "⏱️ Widget Uptime", description: "How long this widget server has been running", accent: "linear-gradient(135deg,#232526,#414345)" },
+  clock: { name: "Clock", description: "Live current time", accent: "linear-gradient(135deg,#f7b733,#fc4a1a)" },
+  date: { name: "Date", description: "Today's day and date", accent: "linear-gradient(135deg,#4facfe,#00f2fe)" },
+  greeting: { name: "Greeting", description: "A friendly message based on the time of day", accent: "linear-gradient(135deg,#ff9a9e,#fad0c4)" },
+  dayProgress: { name: "Day Progress", description: "How much of today has gone by", accent: "linear-gradient(135deg,#43cea2,#185a9d)" },
+  weekNumber: { name: "Week Number", description: "The current ISO week of the year", accent: "linear-gradient(135deg,#8e2de2,#4a00e0)" },
+  uptime: { name: "Widget Uptime", description: "How long this widget server has been running", accent: "linear-gradient(135deg,#232526,#414345)" },
 }
 
 interface SettingDef {
@@ -38,7 +38,7 @@ const TYPE_SETTINGS: Partial<Record<WidgetType, SettingDef[]>> = {
       key: "format", label: "Format", type: "select", default: "short",
       options: [
         { value: "short", label: "Short (Sat, Sep 5)" },
-        { value: "long", label: "Long (Saturday, September 5, 2026)" },
+        { value: "long", label: "Long (September 5, 2026)" },
       ],
     },
   ],
@@ -69,7 +69,12 @@ interface SlotState {
   settings: SettingsValues
 }
 
+interface GlobalSettings {
+  utcOffsetHours: number
+}
+
 interface State {
+  global: GlobalSettings
   slots: Record<SlotId, SlotState>
 }
 
@@ -85,6 +90,7 @@ function defaultSlotState(type: WidgetType): SlotState {
 function defaultState(): State {
   const defaults: WidgetType[] = ["clock", "date", "greeting"]
   return {
+    global: { utcOffsetHours: 10 }, // Brisbane / AEST by default
     slots: Object.fromEntries(SLOT_IDS.map((id, i) => [id, defaultSlotState(defaults[i])])) as Record<SlotId, SlotState>,
   }
 }
@@ -97,7 +103,11 @@ function mergeWithDefaults(loaded: any): State {
     const type: WidgetType = WIDGET_TYPES.includes(loadedSlot?.type) ? loadedSlot.type : base.slots[id].type
     slots[id] = { type, settings: { ...defaultSettingsFor(type), ...(loadedSlot?.settings || {}) } }
   }
-  return { slots: slots as Record<SlotId, SlotState> }
+  const global: GlobalSettings = {
+    utcOffsetHours:
+      typeof loaded?.global?.utcOffsetHours === "number" ? loaded.global.utcOffsetHours : base.global.utcOffsetHours,
+  }
+  return { global, slots: slots as Record<SlotId, SlotState> }
 }
 
 async function loadState(): Promise<State> {
@@ -115,62 +125,79 @@ async function saveState(state: State) {
 
 let state = await loadState()
 
-function nowParts() {
-  const d = new Date()
-  const shortDate = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
-  const weekday = d.toLocaleDateString("en-US", { weekday: "long" })
-  const longDate = d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-  const isoDate = d.toISOString().slice(0, 10)
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-  const hour = d.getHours()
+function pad(n: number) {
+  return n.toString().padStart(2, "0")
+}
+
+// Manual UTC-offset arithmetic, deliberately avoiding IANA timezone lookups
+// (Intl timeZone / system tzdata), since minimal/distroless images may not
+// ship a timezone database. The offset is applied by hand and all subsequent
+// reads use the UTC getters on the shifted Date, which then represent local
+// wall-clock time.
+function localParts(offsetHours: number) {
+  const d = new Date(Date.now() + offsetHours * 3600000)
+  const h = d.getUTCHours()
+  const mnt = d.getUTCMinutes()
+  const sec = d.getUTCSeconds()
+  const weekdayIdx = d.getUTCDay()
+  const dateNum = d.getUTCDate()
+  const monthIdx = d.getUTCMonth()
+  const year = d.getUTCFullYear()
+
+  const shortDate = `${WEEKDAYS_SHORT[weekdayIdx]}, ${MONTHS_SHORT[monthIdx]} ${dateNum}`
+  const weekday = WEEKDAYS[weekdayIdx]
+  const longDate = `${MONTHS[monthIdx]} ${dateNum}, ${year}`
+  const isoDate = `${year}-${pad(monthIdx + 1)}-${pad(dateNum)}`
+
   let greeting = "Good night"
-  if (hour >= 5 && hour < 12) greeting = "Good morning"
-  else if (hour >= 12 && hour < 17) greeting = "Good afternoon"
-  else if (hour >= 17 && hour < 21) greeting = "Good evening"
+  if (h >= 5 && h < 12) greeting = "Good morning"
+  else if (h >= 12 && h < 17) greeting = "Good afternoon"
+  else if (h >= 17 && h < 21) greeting = "Good evening"
 
-  const startOfDay = new Date(d)
-  startOfDay.setHours(0, 0, 0, 0)
-  const dayPct = Math.round(((d.getTime() - startOfDay.getTime()) / 86400000) * 100)
+  const dayPct = Math.round(((h * 3600 + mnt * 60 + sec) / 86400) * 100)
 
+  // ISO week number, computed on the shifted "local" date using UTC getters/setters
   const target = new Date(d.valueOf())
-  const dayNr = (d.getDay() + 6) % 7
-  target.setDate(target.getDate() - dayNr + 3)
+  const dayNr = (weekdayIdx + 6) % 7
+  target.setUTCDate(target.getUTCDate() - dayNr + 3)
   const firstThursday = target.valueOf()
-  target.setMonth(0, 1)
-  if (target.getDay() !== 4) {
-    target.setMonth(0, 1 + ((4 - target.getDay() + 7) % 7))
+  target.setUTCMonth(0, 1)
+  if (target.getUTCDay() !== 4) {
+    target.setUTCMonth(0, 1 + ((4 - target.getUTCDay() + 7) % 7))
   }
   const weekNumber = 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000)
 
-  return { d, shortDate, weekday, longDate, isoDate, greeting, dayPct, weekNumber }
+  return { h, mnt, sec, shortDate, weekday, longDate, isoDate, greeting, dayPct, weekNumber, year }
 }
 
-function formatClockTime(d: Date, settings: SettingsValues) {
-  return d.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: settings.showSeconds === false ? undefined : "2-digit",
-    hour12: settings.use24Hour ? false : true,
-  })
-}
-
-function greetingEmoji(g: string) {
-  if (g === "Good morning") return "🌅"
-  if (g === "Good afternoon") return "🌞"
-  if (g === "Good evening") return "🌆"
-  return "🌙"
+function formatClockTime(p: ReturnType<typeof localParts>, settings: SettingsValues) {
+  let h = p.h
+  let suffix = ""
+  if (!settings.use24Hour) {
+    suffix = h >= 12 ? " PM" : " AM"
+    h = h % 12
+    if (h === 0) h = 12
+  }
+  let str = `${settings.use24Hour ? pad(h) : h}:${pad(p.mnt)}`
+  if (settings.showSeconds !== false) str += `:${pad(p.sec)}`
+  return str + suffix
 }
 
 function renderType(type: WidgetType, settings: SettingsValues): any {
-  const p = nowParts()
+  const p = localParts(state.global.utcOffsetHours)
   switch (type) {
     case "clock":
       return {
         type: "text-with-buttons",
         refresh: settings.showSeconds === false ? "60s" : "1s",
         link: "",
-        title: "🕐 Current Time",
-        text: formatClockTime(p.d, settings),
+        title: "Current Time",
+        text: formatClockTime(p, settings),
         subtext: settings.showDate === false ? "" : p.shortDate,
       }
     case "date": {
@@ -179,46 +206,47 @@ function renderType(type: WidgetType, settings: SettingsValues): any {
         type: "text-with-buttons",
         refresh: "60s",
         link: "",
-        title: "📅 Today",
+        title: "Today",
         text: isLong ? p.longDate : p.weekday,
         subtext: isLong ? p.isoDate : p.longDate,
       }
     }
     case "greeting": {
-      const timeStr = formatClockTime(p.d, { showSeconds: false, use24Hour: false })
+      const timeStr = formatClockTime(p, { showSeconds: false, use24Hour: false })
       const name = typeof settings.name === "string" ? settings.name.trim() : ""
+      const message = "Have a great one"
       return {
         type: "text-with-buttons",
         refresh: "60s",
         link: "",
-        title: `${greetingEmoji(p.greeting)} ${p.greeting}${name ? `, ${name}` : ""}`,
-        text: timeStr,
-        subtext: "Have a great one",
+        title: `${p.greeting}${name ? `, ${name}` : ""}`,
+        text: `${timeStr}\n${message}`,
+        subtext: "",
       }
     }
     case "dayProgress": {
       if (settings.style === "bar") {
         const filled = Math.round(p.dayPct / 10)
-        const bar = "▓".repeat(filled) + "░".repeat(10 - filled)
-        return { type: "text-with-buttons", refresh: "60s", link: "", title: "📊 Day Progress", text: bar, subtext: `${p.dayPct}% of today gone` }
+        const bar = "#".repeat(filled) + "-".repeat(10 - filled)
+        return { type: "text-with-buttons", refresh: "60s", link: "", title: "Day Progress", text: bar, subtext: `${p.dayPct}% of today gone` }
       }
-      return { type: "text-with-buttons", refresh: "60s", link: "", title: "📊 Day Progress", text: `${p.dayPct}%`, subtext: "of today gone" }
+      return { type: "text-with-buttons", refresh: "60s", link: "", title: "Day Progress", text: `${p.dayPct}%`, subtext: "of today gone" }
     }
     case "weekNumber":
       return {
         type: "text-with-buttons",
         refresh: "3600s",
         link: "",
-        title: "🗓️ Week Number",
+        title: "Week Number",
         text: `Week ${p.weekNumber}`,
-        subtext: settings.showYear === false ? "" : p.d.getFullYear().toString(),
+        subtext: settings.showYear === false ? "" : p.year.toString(),
       }
     case "uptime": {
       const secs = Math.floor((Date.now() - START) / 1000)
       const h = Math.floor(secs / 3600)
       const m = Math.floor((secs % 3600) / 60)
       const text = settings.compact === false ? `${h} hours ${m} minutes` : `${h}h ${m}m`
-      return { type: "text-with-buttons", refresh: "30s", link: "", title: "⏱️ Widget Uptime", text, subtext: "since last restart" }
+      return { type: "text-with-buttons", refresh: "30s", link: "", title: "Widget Uptime", text, subtext: "since last restart" }
     }
   }
 }
@@ -251,9 +279,19 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/slots" && req.method === "GET") {
       return Response.json({
+        global: state.global,
         slots: slotListPayload(),
         types: WIDGET_TYPES.map((t) => ({ id: t, ...TYPE_META[t], settingsSchema: TYPE_SETTINGS[t] || [] })),
       })
+    }
+
+    if (url.pathname === "/api/settings" && req.method === "POST") {
+      const body = await req.json().catch(() => ({}))
+      if (typeof body.utcOffsetHours === "number" && Number.isFinite(body.utcOffsetHours)) {
+        state.global.utcOffsetHours = body.utcOffsetHours
+        await saveState(state)
+      }
+      return Response.json({ global: state.global })
     }
 
     const typeMatch = url.pathname.match(/^\/api\/slots\/(slot[123])\/type$/)
