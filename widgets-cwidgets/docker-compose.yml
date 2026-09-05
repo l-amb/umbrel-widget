@@ -10,3 +10,5 @@ services:
       context: /home/umbrel/umbrel/app-data/widgets-cwidgets
     restart: on-failure
     container_name: widgets-cwidgets_widget-server_1
+    volumes:
+      - /home/umbrel/umbrel/app-data/widgets-cwidgets/data:/data
