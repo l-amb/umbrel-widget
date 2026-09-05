@@ -6,6 +6,7 @@ services:
       APP_PORT: 3000
     container_name: widgets-clock-widget_app_proxy_1
   widget-server:
-    image: yourdockerhubuser/widgets-clock-widget:1.0.0
+    build:
+      context: /home/umbrel/umbrel/app-data/widgets-clock-widget
     restart: on-failure
     container_name: widgets-clock-widget_widget-server_1
