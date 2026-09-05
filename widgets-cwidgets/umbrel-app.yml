@@ -2,7 +2,7 @@ manifestVersion: 1
 id: widgets-cwidgets
 category: utilities
 name: cwidgets
-version: "1.0.1"
+version: "1.0.2"
 tagline: A gallery of lightweight widgets for your umbrelOS dashboard
 description: >-
   A small gallery of homepage widgets -- clock, date, greeting, day progress,
