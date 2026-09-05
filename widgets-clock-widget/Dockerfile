@@ -7,5 +7,6 @@ RUN bun build --compile ./index.ts --outfile server
 
 FROM gcr.io/distroless/base
 COPY --from=build /app/server /server
+COPY public /public
 EXPOSE 3000
 CMD ["/server"]
