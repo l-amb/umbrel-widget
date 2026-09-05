@@ -4,73 +4,72 @@
 <meta charset="utf-8" />
 <title>cwidgets</title>
 <style>
-  body {
-    margin: 0;
-    padding: 40px 20px;
-    background: #0f1115;
-    color: #f2f2f2;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  }
-  h1 { text-align: center; font-weight: 600; }
-  p.lead { text-align: center; color: #9a9fa6; max-width: 480px; margin: 8px auto 40px; }
-  .grid { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
-  .card {
-    background: #1a1d24;
-    border-radius: 16px;
-    padding: 20px 24px;
-    width: 220px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-  }
-  .card .title { font-size: 13px; color: #9a9fa6; text-transform: uppercase; letter-spacing: 0.04em; }
-  .card .text { font-size: 28px; font-weight: 600; margin: 6px 0 2px; }
-  .card .subtext { font-size: 14px; color: #9a9fa6; }
-  .hint {
-    text-align: center;
-    margin-top: 48px;
-    color: #9a9fa6;
-    font-size: 14px;
-    max-width: 480px;
-    margin-left: auto;
-    margin-right: auto;
-  }
+  body { margin: 0; padding: 40px 20px; background: #0f1115; color: #f2f2f2; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  h1 { text-align: center; font-weight: 600; margin-bottom: 4px; }
+  p.lead { text-align: center; color: #9a9fa6; max-width: 560px; margin: 8px auto 40px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; max-width: 900px; margin: 0 auto; }
+  .card { background: #1a1d24; border-radius: 16px; padding: 20px 22px; box-shadow: 0 4px 14px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 10px; opacity: 1; transition: opacity 0.2s; }
+  .card.disabled { opacity: 0.45; }
+  .card-header { display: flex; justify-content: space-between; align-items: baseline; }
+  .card-header .name { font-weight: 600; font-size: 15px; }
+  .card-header .desc { font-size: 12px; color: #9a9fa6; margin-top: 2px; }
+  .preview { background: #0f1115; border-radius: 10px; padding: 14px; margin-top: 4px; }
+  .preview .title { font-size: 11px; color: #9a9fa6; text-transform: uppercase; letter-spacing: 0.04em; }
+  .preview .text { font-size: 22px; font-weight: 600; margin: 4px 0 2px; }
+  .preview .subtext { font-size: 12px; color: #9a9fa6; }
+  button.toggle { border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  button.toggle.install { background: #3b82f6; color: white; }
+  button.toggle.uninstall { background: #2a2e37; color: #cfd3d9; }
+  .hint { text-align: center; margin-top: 48px; color: #9a9fa6; font-size: 13px; max-width: 560px; margin-left: auto; margin-right: auto; line-height: 1.5; }
 </style>
 </head>
 <body>
   <h1>cwidgets</h1>
-  <p class="lead">A small collection of homepage widgets. Add any of the previews below to your umbrelOS home screen from the widget picker.</p>
+  <p class="lead">Install the widgets you want, then add them to your umbrelOS home screen from the widget picker.</p>
   <div class="grid" id="grid"></div>
-  <p class="hint">To add one: go to your umbrelOS home screen, click "Customize widgets", and choose from the cwidgets options.</p>
+  <p class="hint">Note: installing/uninstalling here controls whether a widget shows live data. Every cwidgets widget still appears in umbrelOS's own "Customize widgets" panel regardless of install state — uninstalled ones just show "Off" if added there.</p>
 
   <script>
-    const widgetIds = ["clock", "date", "greeting"]
+    async function loadWidgets() {
+      const res = await fetch("/api/widgets")
+      return res.json()
+    }
 
-    function makeCard(id) {
+    function renderCard(w) {
       const card = document.createElement("div")
-      card.className = "card"
+      card.className = "card" + (w.enabled ? "" : " disabled")
       card.innerHTML = `
-        <div class="title" id="title-${id}"></div>
-        <div class="text" id="text-${id}"></div>
-        <div class="subtext" id="subtext-${id}"></div>
+        <div class="card-header">
+          <div>
+            <div class="name">${w.name}</div>
+            <div class="desc">${w.description}</div>
+          </div>
+          <button class="toggle ${w.enabled ? "uninstall" : "install"}" data-id="${w.id}">
+            ${w.enabled ? "Uninstall" : "Install"}
+          </button>
+        </div>
+        <div class="preview">
+          <div class="title">${w.preview.title}</div>
+          <div class="text">${w.preview.text}</div>
+          <div class="subtext">${w.preview.subtext}</div>
+        </div>
       `
+      card.querySelector("button").addEventListener("click", async () => {
+        await fetch(`/api/widgets/${w.id}/toggle`, { method: "POST" })
+        refresh()
+      })
       return card
     }
 
-    const grid = document.getElementById("grid")
-    widgetIds.forEach((id) => grid.appendChild(makeCard(id)))
-
-    async function refresh(id) {
-      try {
-        const res = await fetch(`/widgets/${id}`)
-        const data = await res.json()
-        document.getElementById(`title-${id}`).textContent = data.title || ""
-        document.getElementById(`text-${id}`).textContent = data.text || ""
-        document.getElementById(`subtext-${id}`).textContent = data.subtext || ""
-      } catch (e) {}
+    async function refresh() {
+      const widgets = await loadWidgets()
+      const grid = document.getElementById("grid")
+      grid.innerHTML = ""
+      widgets.forEach((w) => grid.appendChild(renderCard(w)))
     }
 
-    function refreshAll() { widgetIds.forEach(refresh) }
-    refreshAll()
-    setInterval(refreshAll, 1000)
+    refresh()
+    setInterval(refresh, 2000)
   </script>
 </body>
 </html>
