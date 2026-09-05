@@ -2,7 +2,8 @@ manifestVersion: 1
 id: widgets-cwidgets
 category: utilities
 name: cwidgets
-version: "1.0.0"
+version: "1.0.1"
+icon: https://raw.githubusercontent.com/l-amb/umbrel-widget/master/widgets-cwidgets/icon.svg
 tagline: A small collection of homepage widgets for your umbrelOS dashboard
 description: >-
   Adds a handful of lightweight widgets -- a clock, a date, and a greeting --
