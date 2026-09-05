@@ -10,41 +10,76 @@ type SlotId = typeof SLOT_IDS[number]
 type WidgetType = "clock" | "date" | "greeting" | "dayProgress" | "weekNumber" | "uptime"
 const WIDGET_TYPES: WidgetType[] = ["clock", "date", "greeting", "dayProgress", "weekNumber", "uptime"]
 
-const TYPE_META: Record<WidgetType, { name: string; description: string }> = {
-  clock: { name: "Clock", description: "Live current time" },
-  date: { name: "Date", description: "Today's day and date" },
-  greeting: { name: "Greeting", description: "A friendly message based on the time of day" },
-  dayProgress: { name: "Day Progress", description: "How much of today has gone by" },
-  weekNumber: { name: "Week Number", description: "The current ISO week of the year" },
-  uptime: { name: "Widget Uptime", description: "How long this widget server has been running" },
+const TYPE_META: Record<WidgetType, { name: string; description: string; accent: string }> = {
+  clock: { name: "🕐 Clock", description: "Live current time", accent: "linear-gradient(135deg,#f7b733,#fc4a1a)" },
+  date: { name: "📅 Date", description: "Today's day and date", accent: "linear-gradient(135deg,#4facfe,#00f2fe)" },
+  greeting: { name: "👋 Greeting", description: "A friendly message based on the time of day", accent: "linear-gradient(135deg,#ff9a9e,#fad0c4)" },
+  dayProgress: { name: "📊 Day Progress", description: "How much of today has gone by", accent: "linear-gradient(135deg,#43cea2,#185a9d)" },
+  weekNumber: { name: "🗓️ Week Number", description: "The current ISO week of the year", accent: "linear-gradient(135deg,#8e2de2,#4a00e0)" },
+  uptime: { name: "⏱️ Widget Uptime", description: "How long this widget server has been running", accent: "linear-gradient(135deg,#232526,#414345)" },
 }
 
 interface SettingDef {
   key: string
   label: string
-  type: "boolean"
-  default: boolean
+  type: "boolean" | "select" | "text"
+  default: boolean | string
+  options?: { value: string; label: string }[]
 }
 
 const TYPE_SETTINGS: Partial<Record<WidgetType, SettingDef[]>> = {
   clock: [
     { key: "showSeconds", label: "Show seconds", type: "boolean", default: true },
     { key: "use24Hour", label: "Use 24-hour time", type: "boolean", default: false },
+    { key: "showDate", label: "Show date", type: "boolean", default: true },
+  ],
+  date: [
+    {
+      key: "format", label: "Format", type: "select", default: "short",
+      options: [
+        { value: "short", label: "Short (Sat, Sep 5)" },
+        { value: "long", label: "Long (Saturday, September 5, 2026)" },
+      ],
+    },
+  ],
+  greeting: [
+    { key: "name", label: "Your name (optional)", type: "text", default: "" },
+  ],
+  dayProgress: [
+    {
+      key: "style", label: "Style", type: "select", default: "percent",
+      options: [
+        { value: "percent", label: "Percentage" },
+        { value: "bar", label: "Progress bar" },
+      ],
+    },
+  ],
+  weekNumber: [
+    { key: "showYear", label: "Show year", type: "boolean", default: true },
+  ],
+  uptime: [
+    { key: "compact", label: "Compact format (4h 12m)", type: "boolean", default: true },
   ],
 }
 
+type SettingsValues = Record<string, boolean | string>
+
 interface SlotState {
   type: WidgetType
-  settings: Record<string, boolean>
+  settings: SettingsValues
 }
 
 interface State {
   slots: Record<SlotId, SlotState>
 }
 
-function defaultSlotState(type: WidgetType): SlotState {
+function defaultSettingsFor(type: WidgetType): SettingsValues {
   const defs = TYPE_SETTINGS[type]
-  return { type, settings: defs ? Object.fromEntries(defs.map((d) => [d.key, d.default])) : {} }
+  return defs ? Object.fromEntries(defs.map((d) => [d.key, d.default])) : {}
+}
+
+function defaultSlotState(type: WidgetType): SlotState {
+  return { type, settings: defaultSettingsFor(type) }
 }
 
 function defaultState(): State {
@@ -60,9 +95,7 @@ function mergeWithDefaults(loaded: any): State {
   for (const id of SLOT_IDS) {
     const loadedSlot = loaded?.slots?.[id]
     const type: WidgetType = WIDGET_TYPES.includes(loadedSlot?.type) ? loadedSlot.type : base.slots[id].type
-    const defs = TYPE_SETTINGS[type]
-    const defaultSettings = defs ? Object.fromEntries(defs.map((d) => [d.key, d.default])) : {}
-    slots[id] = { type, settings: { ...defaultSettings, ...(loadedSlot?.settings || {}) } }
+    slots[id] = { type, settings: { ...defaultSettingsFor(type), ...(loadedSlot?.settings || {}) } }
   }
   return { slots: slots as Record<SlotId, SlotState> }
 }
@@ -87,6 +120,7 @@ function nowParts() {
   const shortDate = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
   const weekday = d.toLocaleDateString("en-US", { weekday: "long" })
   const longDate = d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+  const isoDate = d.toISOString().slice(0, 10)
 
   const hour = d.getHours()
   let greeting = "Good night"
@@ -108,10 +142,10 @@ function nowParts() {
   }
   const weekNumber = 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000)
 
-  return { d, shortDate, weekday, longDate, greeting, dayPct, weekNumber }
+  return { d, shortDate, weekday, longDate, isoDate, greeting, dayPct, weekNumber }
 }
 
-function formatClockTime(d: Date, settings: Record<string, boolean>) {
+function formatClockTime(d: Date, settings: SettingsValues) {
   return d.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
@@ -120,7 +154,14 @@ function formatClockTime(d: Date, settings: Record<string, boolean>) {
   })
 }
 
-function renderType(type: WidgetType, settings: Record<string, boolean>): any {
+function greetingEmoji(g: string) {
+  if (g === "Good morning") return "🌅"
+  if (g === "Good afternoon") return "🌞"
+  if (g === "Good evening") return "🌆"
+  return "🌙"
+}
+
+function renderType(type: WidgetType, settings: SettingsValues): any {
   const p = nowParts()
   switch (type) {
     case "clock":
@@ -128,30 +169,56 @@ function renderType(type: WidgetType, settings: Record<string, boolean>): any {
         type: "text-with-buttons",
         refresh: settings.showSeconds === false ? "60s" : "1s",
         link: "",
-        title: "Current Time",
+        title: "🕐 Current Time",
         text: formatClockTime(p.d, settings),
-        subtext: p.shortDate,
+        subtext: settings.showDate === false ? "" : p.shortDate,
       }
-    case "date":
-      return { type: "text-with-buttons", refresh: "60s", link: "", title: "Today", text: p.weekday, subtext: p.longDate }
-    case "greeting":
+    case "date": {
+      const isLong = settings.format === "long"
       return {
         type: "text-with-buttons",
         refresh: "60s",
         link: "",
-        title: p.greeting,
-        text: formatClockTime(p.d, { showSeconds: false, use24Hour: false }),
+        title: "📅 Today",
+        text: isLong ? p.longDate : p.weekday,
+        subtext: isLong ? p.isoDate : p.longDate,
+      }
+    }
+    case "greeting": {
+      const timeStr = formatClockTime(p.d, { showSeconds: false, use24Hour: false })
+      const name = typeof settings.name === "string" ? settings.name.trim() : ""
+      return {
+        type: "text-with-buttons",
+        refresh: "60s",
+        link: "",
+        title: `${greetingEmoji(p.greeting)} ${p.greeting}${name ? `, ${name}` : ""}`,
+        text: timeStr,
         subtext: "Have a great one",
       }
-    case "dayProgress":
-      return { type: "text-with-buttons", refresh: "60s", link: "", title: "Day Progress", text: `${p.dayPct}%`, subtext: "of today gone" }
+    }
+    case "dayProgress": {
+      if (settings.style === "bar") {
+        const filled = Math.round(p.dayPct / 10)
+        const bar = "▓".repeat(filled) + "░".repeat(10 - filled)
+        return { type: "text-with-buttons", refresh: "60s", link: "", title: "📊 Day Progress", text: bar, subtext: `${p.dayPct}% of today gone` }
+      }
+      return { type: "text-with-buttons", refresh: "60s", link: "", title: "📊 Day Progress", text: `${p.dayPct}%`, subtext: "of today gone" }
+    }
     case "weekNumber":
-      return { type: "text-with-buttons", refresh: "3600s", link: "", title: "Week Number", text: `Week ${p.weekNumber}`, subtext: p.d.getFullYear().toString() }
+      return {
+        type: "text-with-buttons",
+        refresh: "3600s",
+        link: "",
+        title: "🗓️ Week Number",
+        text: `Week ${p.weekNumber}`,
+        subtext: settings.showYear === false ? "" : p.d.getFullYear().toString(),
+      }
     case "uptime": {
       const secs = Math.floor((Date.now() - START) / 1000)
       const h = Math.floor(secs / 3600)
       const m = Math.floor((secs % 3600) / 60)
-      return { type: "text-with-buttons", refresh: "30s", link: "", title: "Widget Uptime", text: `${h}h ${m}m`, subtext: "since last restart" }
+      const text = settings.compact === false ? `${h} hours ${m} minutes` : `${h}h ${m}m`
+      return { type: "text-with-buttons", refresh: "30s", link: "", title: "⏱️ Widget Uptime", text, subtext: "since last restart" }
     }
   }
 }
@@ -162,6 +229,7 @@ function slotListPayload() {
     return {
       id,
       type: slot.type,
+      accent: TYPE_META[slot.type].accent,
       settingsSchema: TYPE_SETTINGS[slot.type] || [],
       settings: slot.settings,
       preview: renderType(slot.type, slot.settings),
@@ -207,7 +275,9 @@ const server = Bun.serve({
       if (!defs) return new Response("No settings for this widget", { status: 400 })
       const body = await req.json().catch(() => ({}))
       for (const def of defs) {
-        if (def.key in body) slot.settings[def.key] = !!body[def.key]
+        if (def.key in body) {
+          slot.settings[def.key] = def.type === "boolean" ? !!body[def.key] : String(body[def.key])
+        }
       }
       await saveState(state)
       return Response.json({ id, settings: slot.settings })
