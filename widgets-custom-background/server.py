@@ -40,6 +40,11 @@ HOOK_JS = r"""(() => {
   const rootId = "__umbrel_custom_background_v1";
   const styleId = "__umbrel_custom_background_style_v1";
   let last = null;
+  let state = null;      // latest settings from state.json
+  let stillUrl = null;   // blob: URL of a flat copy of the background (for the widgets' glass)
+  let token = 0;
+
+  function mediaUrl(name) { return BASE + "/media/" + encodeURIComponent(name); }
 
   function hideNative(on) {
     let st = document.getElementById(styleId);
@@ -52,15 +57,85 @@ HOOK_JS = r"""(() => {
     document.head.appendChild(st);
   }
 
+  // Widgets refract a hidden copy of the built-in wallpaper
+  // (<img data-wallpaper-static-source>), not what is actually on screen.
+  // Point that copy at our background (darkness baked in) so they match.
+  function applyStatic() {
+    const active = state && state.current;
+    if (active && !stillUrl) return; // still being built; keep whatever is there
+    document.querySelectorAll("img[data-wallpaper-static-source]").forEach((img) => {
+      if (active) {
+        if (img.dataset.cbOrig === undefined) img.dataset.cbOrig = img.getAttribute("src") || "";
+        if (img.getAttribute("src") !== stillUrl) {
+          img.removeAttribute("srcset");
+          img.setAttribute("src", stillUrl);
+        }
+        img.style.objectPosition = state.position || "center";
+      } else if (img.dataset.cbOrig !== undefined) {
+        if ((img.getAttribute("src") || "").startsWith("blob:")) img.setAttribute("src", img.dataset.cbOrig);
+        img.style.objectPosition = "";
+        delete img.dataset.cbOrig;
+      }
+    });
+  }
+
+  async function buildStill(s) {
+    const url = mediaUrl(s.current);
+    let src, w, h, cleanup = () => {};
+    if (/\.mp4$/i.test(s.current)) {
+      const v = document.createElement("video");
+      v.muted = true; v.preload = "auto"; v.playsInline = true;
+      await Promise.race([
+        new Promise((res, rej) => {
+          v.onerror = () => rej(new Error("video failed to load"));
+          v.onloadeddata = () => {
+            v.onseeked = res;
+            v.currentTime = Math.max(0.1, Math.min(1, (v.duration || 2) / 2));
+          };
+          v.src = url;
+        }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("video timeout")), 20000)),
+      ]);
+      src = v; w = v.videoWidth; h = v.videoHeight;
+      cleanup = () => { v.removeAttribute("src"); v.load(); };
+    } else {
+      const im = new Image();
+      await new Promise((res, rej) => {
+        im.onload = res;
+        im.onerror = () => rej(new Error("image failed to load"));
+        im.src = url;
+      });
+      src = im; w = im.naturalWidth; h = im.naturalHeight;
+    }
+    const scale = Math.min(1, 1920 / w);
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w * scale));
+    c.height = Math.max(1, Math.round(h * scale));
+    const ctx = c.getContext("2d");
+    ctx.drawImage(src, 0, 0, c.width, c.height);
+    ctx.fillStyle = "rgba(0,0,0," + ((s.darkness || 0) / 100) + ")";
+    ctx.fillRect(0, 0, c.width, c.height);
+    cleanup();
+    const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
+    if (!blob) throw new Error("could not encode still");
+    return URL.createObjectURL(blob);
+  }
+
   function render(s) {
     const signature = JSON.stringify(s);
     if (signature === last) return;
     last = signature;
+    state = s;
+    const my = ++token;
 
     let root = document.getElementById(rootId);
     if (!s.current) {
       if (root) root.remove();
       hideNative(false);
+      const old = stillUrl;
+      stillUrl = null;
+      applyStatic();
+      if (old) setTimeout(() => URL.revokeObjectURL(old), 2000);
       return;
     }
     if (!root) {
@@ -77,7 +152,7 @@ HOOK_JS = r"""(() => {
 
     const isVideo = /\.mp4$/i.test(s.current);
     const media = document.createElement(isVideo ? "video" : "img");
-    media.src = BASE + "/media/" + encodeURIComponent(s.current);
+    media.src = mediaUrl(s.current);
     if (isVideo) {
       media.autoplay = true;
       media.loop = true;
@@ -97,6 +172,14 @@ HOOK_JS = r"""(() => {
       background:"rgba(0,0,0," + ((s.darkness || 0) / 100) + ")"
     });
     root.appendChild(overlay);
+
+    buildStill(s).then((u) => {
+      if (my !== token) { URL.revokeObjectURL(u); return; }
+      const old = stillUrl;
+      stillUrl = u;
+      applyStatic();
+      if (old) setTimeout(() => URL.revokeObjectURL(old), 2000);
+    }).catch((e) => console.warn("[custom-background] widget still failed:", e));
   }
 
   async function update() {
@@ -105,6 +188,15 @@ HOOK_JS = r"""(() => {
       if (r.ok) render(await r.json());
     } catch (_) {}
   }
+
+  // The dashboard re-creates the hidden wallpaper <img> when screens change;
+  // re-apply whenever new elements show up.
+  let pending = false;
+  new MutationObserver(() => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; applyStatic(); });
+  }).observe(document.documentElement, {childList:true, subtree:true});
 
   update();
   setInterval(update, 5000);
