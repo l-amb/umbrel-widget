@@ -230,7 +230,7 @@ async function load() {
 }
 
 async function applyBg(name) {
-  await api("/api/apply", {
+  const r = await fetch("/api/apply", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({
@@ -239,8 +239,10 @@ async function applyBg(name) {
       position:$("position").value
     })
   });
+  const text = await r.text();
   await load();
-  alert("Background applied. Reload the Umbrel dashboard.");
+  if (r.ok) alert("Background applied. Reload the Umbrel dashboard.");
+  else alert("Saved, but couldn't patch the dashboard: " + text);
 }
 
 async function restore() {
@@ -367,9 +369,20 @@ def shlex_quote(s):
     return shlex.quote(s)
 
 class Handler(BaseHTTPRequestHandler):
+    def cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.cors()
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
     def send_json(self, data, code=200):
         raw = json.dumps(data).encode()
         self.send_response(code)
+        self.cors()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
@@ -440,6 +453,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
 
             length = end - start + 1
+            self.cors()
             self.send_header("Content-Type", mime)
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Length", str(length))
