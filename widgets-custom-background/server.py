@@ -217,9 +217,11 @@ async function load() {
       d.innerHTML =
         "<span>" + esc(f.name) + "</span>" +
         '<span class="row">' +
-        '<button onclick="applyBg(' + JSON.stringify(f.name) + ')">Apply</button>' +
-        '<button class="secondary" onclick="delFile(' + JSON.stringify(f.name) + ')">Delete</button>' +
+        '<button class="apply">Apply</button>' +
+        '<button class="secondary del">Delete</button>' +
         "</span>";
+      d.querySelector(".apply").addEventListener("click", () => applyBg(f.name));
+      d.querySelector(".del").addEventListener("click", () => delFile(f.name));
       $("list").appendChild(d);
     }
 
@@ -407,6 +409,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
             self.wfile.write(raw)
+            return
+
+        if path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
             return
 
         if path == "/api/state":
