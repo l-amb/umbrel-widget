@@ -1,0 +1,18 @@
+manifestVersion: "1.0.0"
+id: custom-background
+name: Custom Background
+tagline: Use MP4, PNG and JPG backgrounds on your Umbrel dashboard
+category: Utilities
+version: "1.0.0"
+port: 38888
+description: >-
+  Upload and manage custom MP4, PNG, JPG and JPEG backgrounds for the
+  umbrelOS 2.0 dashboard. The selected background persists across reboots.
+website: https://github.com/
+developer: Community
+submitter: Community
+support: https://github.com/
+repo: https://github.com/
+gallery: []
+permissions:
+  - Docker
