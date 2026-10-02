@@ -1,5 +1,5 @@
 manifestVersion: "1.0.0"
-id: custom-background
+id: widgets-custom-background
 name: Custom Background
 tagline: Use MP4, PNG and JPG backgrounds on your Umbrel dashboard
 category: Utilities
