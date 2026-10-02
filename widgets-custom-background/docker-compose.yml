@@ -3,26 +3,31 @@ version: "3.7"
 services:
   app_proxy:
     environment:
-      APP_HOST: custom_background_web_1
+      APP_HOST: widgets-custom-background_web_1
       APP_PORT: 38888
       PROXY_AUTH_ADD: "true"
-    container_name: custom_background_app_proxy_1
+      # The dashboard hook runs on a different origin and can't send the app
+      # login cookie, so these two read-only endpoints must be public.
+      PROXY_AUTH_WHITELIST: "/api/state,/media/*"
+    container_name: widgets-custom-background_app_proxy_1
 
   web:
     image: python:3.12-alpine
-    container_name: custom_background_web_1
+    container_name: widgets-custom-background_web_1
     restart: unless-stopped
     command:
       - /bin/sh
       - -c
       - |
         apk add --no-cache docker-cli >/dev/null 2>&1
-        exec python3 /app/server.py
+        exec python3 -u /app/server.py
     environment:
       PORT: "38888"
       MEDIA_DIR: /app/data/media
       STATE_DIR: /app/data/state
     volumes:
+      # server.py has to be mounted in, otherwise the container has nothing to run
+      - ${APP_DATA_DIR}/server.py:/app/server.py:ro
       - ${APP_DATA_DIR}/data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
     expose:
