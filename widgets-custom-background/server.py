@@ -5,7 +5,8 @@ import mimetypes
 import os
 import re
 import shutil
-import subprocess
+import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
@@ -15,52 +16,75 @@ MEDIA_DIR = Path(os.environ.get("MEDIA_DIR", "/app/data/media"))
 STATE_DIR = Path(os.environ.get("STATE_DIR", "/app/data/state"))
 STATE_FILE = STATE_DIR / "settings.json"
 
+# The dashboard's own UI folder on the host (mounted read-write), and the
+# host-side path of our media folder (used as a symlink target, so umbreld
+# can serve the media from the dashboard's own origin).
+UI_DIR = Path(os.environ.get("UI_DIR", "/host-ui"))
+HOST_MEDIA_DIR = os.environ.get("HOST_MEDIA_DIR", "")
+CB_DIR = UI_DIR / "custom-background"
+INDEX = UI_DIR / "index.html"
+BACKUP = STATE_DIR / "index.html.orig"
+MARKER = "custom-background/hook.js"
+TAG = '<script defer src="/custom-background/hook.js"></script>'
+INTEGRATION = {"ok": False, "message": "Not installed yet"}
+LOCK = threading.Lock()
+
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED = {".mp4", ".png", ".jpg", ".jpeg"}
 MAX_UPLOAD = 1024 * 1024 * 1024
 
-HOOK = r''
-
 HOOK_JS = r"""(() => {
-  const PORT = 38888;
+  const BASE = "/custom-background";
   const rootId = "__umbrel_custom_background_v1";
-  let last = "";
-  function server() {
-    return location.protocol + "//" + location.hostname + ":" + PORT;
+  const styleId = "__umbrel_custom_background_style_v1";
+  let last = null;
+
+  function hideNative(on) {
+    let st = document.getElementById(styleId);
+    if (!on) { if (st) st.remove(); return; }
+    if (st) return;
+    st = document.createElement("style");
+    st.id = styleId;
+    // umbrelOS draws its wallpaper as fixed full-screen <img>/<video> elements.
+    st.textContent = "#root img.fixed.inset-0,#root video.fixed.inset-0{opacity:0!important}";
+    document.head.appendChild(st);
   }
+
   function render(s) {
     const signature = JSON.stringify(s);
     if (signature === last) return;
     last = signature;
 
     let root = document.getElementById(rootId);
+    if (!s.current) {
+      if (root) root.remove();
+      hideNative(false);
+      return;
+    }
     if (!root) {
       root = document.createElement("div");
       root.id = rootId;
       Object.assign(root.style, {
         position:"fixed", inset:"0", zIndex:"-1",
-        overflow:"hidden", pointerEvents:"none",
-        background:"#111"
+        overflow:"hidden", pointerEvents:"none", background:"#111"
       });
       document.body.prepend(root);
     }
-
     root.innerHTML = "";
-    if (!s.current) return;
+    hideNative(true);
 
-    const media = document.createElement(/\.mp4$/i.test(s.current) ? "video" : "img");
-    media.src = server() + "/media/" + encodeURIComponent(s.current);
-
-    if (media.tagName === "VIDEO") {
+    const isVideo = /\.mp4$/i.test(s.current);
+    const media = document.createElement(isVideo ? "video" : "img");
+    media.src = BASE + "/media/" + encodeURIComponent(s.current);
+    if (isVideo) {
       media.autoplay = true;
       media.loop = true;
       media.muted = true;
       media.playsInline = true;
       media.setAttribute("playsinline", "");
     }
-
     Object.assign(media.style, {
       position:"absolute", inset:"0", width:"100%", height:"100%",
       objectFit:"cover", objectPosition:s.position || "center"
@@ -77,16 +101,12 @@ HOOK_JS = r"""(() => {
 
   async function update() {
     try {
-      const r = await fetch(server() + "/api/state", {cache:"no-store"});
+      const r = await fetch(BASE + "/state.json?t=" + Date.now(), {cache:"no-store"});
       if (r.ok) render(await r.json());
     } catch (_) {}
   }
 
-  if (document.readyState === "loading")
-    document.addEventListener("DOMContentLoaded", update);
-  else
-    update();
-
+  update();
   setInterval(update, 5000);
 })();"""
 
@@ -225,7 +245,10 @@ async function load() {
       $("list").appendChild(d);
     }
 
-    $("status").textContent = "Dashboard integration: active";
+    const i = s.integration || {};
+    $("status").textContent = i.ok
+      ? "Dashboard integration: active"
+      : "Dashboard integration problem: " + (i.message || "unknown");
   } catch (e) {
     $("status").textContent = "Error: " + e.message;
   }
@@ -243,8 +266,10 @@ async function applyBg(name) {
   });
   const text = await r.text();
   await load();
+  let msg = text;
+  try { msg = JSON.parse(text).integration || text; } catch (_) {}
   if (r.ok) alert("Background applied. Reload the Umbrel dashboard.");
-  else alert("Saved, but couldn't patch the dashboard: " + text);
+  else alert("Saved, but couldn't patch the dashboard: " + msg);
 }
 
 async function restore() {
@@ -308,83 +333,69 @@ def safe_name(name):
         raise ValueError("Hidden filenames are not allowed.")
     return name
 
-def docker(args):
-    return subprocess.run(
-        ["docker", *args],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=30
-    )
+def write_if_changed(path, text):
+    try:
+        if path.read_text(encoding="utf-8") == text:
+            return
+    except FileNotFoundError:
+        pass
+    path.write_text(text, encoding="utf-8")
 
-def patch_dashboard():
-    # The app intentionally uses the Docker socket only for this operation.
-    ps = docker(["ps", "--format", "{{.Names}}"])
-    if ps.returncode != 0:
-        return False, ps.stderr.strip()
+def install_integration():
+    """Make sure the dashboard serves our hook + state + media. Idempotent."""
+    global INTEGRATION
+    with LOCK:
+        try:
+            if not INDEX.is_file():
+                raise RuntimeError(f"Dashboard folder isn't mounted (no index.html in {UI_DIR}).")
+            if not HOST_MEDIA_DIR:
+                raise RuntimeError("HOST_MEDIA_DIR is not set.")
 
-    names = [
-        n.strip() for n in ps.stdout.splitlines()
-        if n.strip() and ("umbreld" in n.lower() or n.lower().startswith("umbrel"))
-    ]
-    if not names:
-        return False, "Could not find the umbrelOS dashboard container."
+            CB_DIR.mkdir(exist_ok=True)
+            write_if_changed(CB_DIR / "hook.js", HOOK_JS)
 
-    patched = 0
-    for container in names:
-        find_cmd = (
-            "find / -type f -name index.html 2>/dev/null "
-            "| grep -E '/(ui|dist)/index\\.html$' | head -20"
-        )
-        found = docker(["exec", container, "sh", "-lc", find_cmd])
-        targets = [x.strip() for x in found.stdout.splitlines() if x.strip()]
-        if not targets:
-            continue
+            st = read_state()
+            write_if_changed(
+                CB_DIR / "state.json",
+                json.dumps({k: st.get(k) for k in ("current", "darkness", "position")}),
+            )
 
-        # Copy hook into the container.
-        hook_host = Path("/tmp/custom-background-hook.js")
-        hook_host.write_text(HOOK_JS)
-        cp = docker(["cp", str(hook_host), f"{container}:/tmp/custom-background-hook.js"])
-        if cp.returncode != 0:
-            continue
+            link = CB_DIR / "media"
+            if not (link.is_symlink() and os.readlink(link) == HOST_MEDIA_DIR):
+                if link.is_symlink() or link.is_file():
+                    link.unlink()
+                elif link.is_dir():
+                    shutil.rmtree(link)
+                os.symlink(HOST_MEDIA_DIR, link)
 
-        for target in targets:
-            # Copy next to index.html.
-            cmd = f"""
-set -e
-d=$(dirname {shlex_quote(target)})
-cp /tmp/custom-background-hook.js "$d/custom-background-hook.js"
-if ! grep -q 'custom-background-hook.js' {shlex_quote(target)}; then
-  sed -i 's#</head>#<script src="/custom-background-hook.js"></script></head>#' {shlex_quote(target)}
-fi
-"""
-            result = docker(["exec", container, "sh", "-lc", cmd])
-            if result.returncode == 0:
-                patched += 1
+            html = INDEX.read_text(encoding="utf-8")
+            if MARKER not in html:
+                if "</head>" not in html:
+                    raise RuntimeError("index.html has no </head>; can't insert the hook.")
+                BACKUP.write_text(html, encoding="utf-8")  # last clean copy
+                INDEX.write_text(html.replace("</head>", TAG + "</head>", 1), encoding="utf-8")
 
-    if patched:
-        return True, f"Patched {patched} dashboard UI file(s)."
-    return False, "Found Umbrel containers, but could not locate a writable dashboard index.html."
+            INTEGRATION = {"ok": True, "message": "Dashboard patched."}
+        except OSError as e:
+            if e.errno == 30:
+                msg = "The dashboard folder is read-only on this system, so it can't be patched."
+            else:
+                msg = f"{type(e).__name__}: {e}"
+            INTEGRATION = {"ok": False, "message": msg}
+        except Exception as e:
+            INTEGRATION = {"ok": False, "message": f"{type(e).__name__}: {e}"}
+        return INTEGRATION["ok"], INTEGRATION["message"]
 
-def shlex_quote(s):
-    import shlex
-    return shlex.quote(s)
+def watchdog():
+    # Re-applies the patch if an umbrelOS update replaced the dashboard files.
+    while True:
+        time.sleep(30)
+        install_integration()
 
 class Handler(BaseHTTPRequestHandler):
-    def cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self.cors()
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
-        self.end_headers()
-
     def send_json(self, data, code=200):
         raw = json.dumps(data).encode()
         self.send_response(code)
-        self.cors()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
@@ -418,6 +429,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/state":
             s = read_state()
+            s["integration"] = INTEGRATION
             self.send_json(s)
             return
 
@@ -460,7 +472,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
 
             length = end - start + 1
-            self.cors()
             self.send_header("Content-Type", mime)
             self.send_header("Accept-Ranges", "bytes")
             self.send_header("Content-Length", str(length))
@@ -489,7 +500,7 @@ class Handler(BaseHTTPRequestHandler):
                 if s.get("current") == name:
                     s["current"] = None
                     write_state(s)
-                    patch_dashboard()
+                    install_integration()
                 self.send_json({"ok": True})
             except Exception as e:
                 self.send_text(str(e), 400)
@@ -557,7 +568,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 s = {"current": name, "darkness": darkness, "position": position}
                 write_state(s)
-                ok, message = patch_dashboard()
+                ok, message = install_integration()
                 s["integration"] = message
                 self.send_json(s, 200 if ok else 503)
             except Exception as e:
@@ -569,4 +580,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(fmt % args, flush=True)
 
+install_integration()
+threading.Thread(target=watchdog, daemon=True).start()
+print("Integration:", INTEGRATION, flush=True)
 ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
