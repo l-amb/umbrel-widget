@@ -42,6 +42,7 @@ HOOK_JS = r"""(() => {
   let last = null;
   let state = null;      // latest settings from state.json
   let stillUrl = null;   // blob: URL of a flat copy of the background (for the widgets' glass)
+  let themeBrand = null; // accent colour picked from the background, "H S% L%"
   let token = 0;
 
   function mediaUrl(name) { return BASE + "/media/" + encodeURIComponent(name); }
@@ -79,6 +80,109 @@ HOOK_JS = r"""(() => {
     });
   }
 
+  // ---- accent colour theme -------------------------------------------------
+  // umbrelOS derives its theme from CSS variables on <html>, written from the
+  // built-in wallpaper's brand colour. We overwrite them with a colour taken
+  // from our background, and put the originals back when we're switched off.
+  const ours = {};      // var name -> value we last wrote (as read back)
+  const origVals = {};  // var name -> value that was there before us
+  let appliedBrand = null;
+  let metaOrig;
+
+  function themeVars(brand) {
+    const [h, sat, l] = brand.split(" ");
+    const L = parseFloat(l);
+    const withL = (x) => h + " " + sat + " " + x + "%";
+    const v = {
+      "--color-brand": brand,
+      "--color-brand-lighter": withL(Math.min(100, L + 8)),
+      "--color-brand-lightest": withL(Math.min(100, L + 16)),
+      "--wallpaper-theme-color": withL(12),
+      "--settings-tone-cold": withL(90),
+      "--settings-tone-temperature-border": withL(10),
+      "--settings-tone-hot": withL(10),
+    };
+    [62, 48, 34, 20, 10, 2].forEach((x, i) => { v["--settings-tone-" + (i + 1)] = withL(x); });
+    return v;
+  }
+
+  function revertTheme() {
+    const el = document.documentElement;
+    for (const k of Object.keys(ours)) {
+      if (origVals[k]) el.style.setProperty(k, origVals[k]);
+      else el.style.removeProperty(k);
+      delete ours[k];
+      delete origVals[k];
+    }
+    appliedBrand = null;
+    if (metaOrig !== undefined) {
+      const m = document.querySelector('meta[name="theme-color"]');
+      if (m) m.setAttribute("content", metaOrig);
+      metaOrig = undefined;
+    }
+  }
+
+  function applyTheme() {
+    const on = state && state.current && state.theme !== false && themeBrand;
+    if (!on) { if (Object.keys(ours).length || metaOrig !== undefined) revertTheme(); return; }
+    const el = document.documentElement;
+    const vars = themeVars(themeBrand);
+    for (const [k, v] of Object.entries(vars)) {
+      const cur = el.style.getPropertyValue(k);
+      if (appliedBrand === themeBrand && cur === ours[k]) continue; // nothing changed
+      // If the value isn't one we wrote, the dashboard just set it: that's the original.
+      if (ours[k] === undefined || cur !== ours[k]) origVals[k] = cur;
+      el.style.setProperty(k, v);
+      ours[k] = el.style.getPropertyValue(k);
+    }
+    appliedBrand = themeBrand;
+    const m = document.querySelector('meta[name="theme-color"]');
+    if (m) {
+      if (metaOrig === undefined) metaOrig = m.getAttribute("content") || "";
+      m.setAttribute("content", "hsl(" + vars["--wallpaper-theme-color"] + ")");
+    }
+  }
+
+  // Most common vivid hue in the image -> "H S% L%" (null if it is basically greyscale)
+  function dominantBrand(canvas) {
+    const sw = 64, sh = Math.max(1, Math.round(64 * canvas.height / canvas.width));
+    const t = document.createElement("canvas");
+    t.width = sw; t.height = sh;
+    const tc = t.getContext("2d");
+    tc.drawImage(canvas, 0, 0, sw, sh);
+    const d = tc.getImageData(0, 0, sw, sh).data;
+    const bins = Array.from({length: 36}, () => ({w: 0, x: 0, y: 0, s: 0}));
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      const l = (mx + mn) / 2, dl = mx - mn;
+      if (dl < 0.08 || l < 0.1 || l > 0.92) continue;
+      const sat = dl / (1 - Math.abs(2 * l - 1));
+      let h;
+      if (mx === r) h = ((g - b) / dl) % 6;
+      else if (mx === g) h = (b - r) / dl + 2;
+      else h = (r - g) / dl + 4;
+      h *= 60; if (h < 0) h += 360;
+      const w = sat * (1 - Math.abs(2 * l - 1)); // favour vivid, mid-tone pixels
+      const bin = bins[Math.floor(h / 10) % 36];
+      const rad = h * Math.PI / 180;
+      bin.w += w; bin.x += Math.cos(rad) * w; bin.y += Math.sin(rad) * w; bin.s += sat * w;
+    }
+    let best = null;
+    for (let i = 0; i < 36; i++) {
+      // score a bin together with its neighbours so a smooth gradient beats a noisy spike
+      const a = bins[i], b = bins[(i + 35) % 36], c = bins[(i + 1) % 36];
+      const score = a.w + 0.5 * (b.w + c.w);
+      if (!best || score > best.score) best = {score, a, b, c};
+    }
+    if (!best || best.score < 1e-6) return null;
+    const x = best.a.x + best.b.x + best.c.x, y = best.a.y + best.b.y + best.c.y;
+    const w = best.a.w + best.b.w + best.c.w;
+    let hue = Math.atan2(y, x) * 180 / Math.PI; if (hue < 0) hue += 360;
+    const sat = Math.max(35, Math.min(85, ((best.a.s + best.b.s + best.c.s) / w) * 100));
+    return Math.round(hue) + " " + Math.round(sat) + "% 55%";
+  }
+
   async function buildStill(s) {
     const url = mediaUrl(s.current);
     let src, w, h, cleanup = () => {};
@@ -113,12 +217,14 @@ HOOK_JS = r"""(() => {
     c.height = Math.max(1, Math.round(h * scale));
     const ctx = c.getContext("2d");
     ctx.drawImage(src, 0, 0, c.width, c.height);
+    cleanup();
+    let brand = null;
+    try { brand = dominantBrand(c); } catch (e) { console.warn("[custom-background] colour pick failed:", e); }
     ctx.fillStyle = "rgba(0,0,0," + ((s.darkness || 0) / 100) + ")";
     ctx.fillRect(0, 0, c.width, c.height);
-    cleanup();
     const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
     if (!blob) throw new Error("could not encode still");
-    return URL.createObjectURL(blob);
+    return {url: URL.createObjectURL(blob), brand};
   }
 
   function render(s) {
@@ -134,10 +240,13 @@ HOOK_JS = r"""(() => {
       hideNative(false);
       const old = stillUrl;
       stillUrl = null;
+      themeBrand = null;
       applyStatic();
+      applyTheme();
       if (old) setTimeout(() => URL.revokeObjectURL(old), 2000);
       return;
     }
+    applyTheme(); // picks up a theme on/off change straight away
     if (!root) {
       root = document.createElement("div");
       root.id = rootId;
@@ -173,11 +282,13 @@ HOOK_JS = r"""(() => {
     });
     root.appendChild(overlay);
 
-    buildStill(s).then((u) => {
-      if (my !== token) { URL.revokeObjectURL(u); return; }
+    buildStill(s).then((r) => {
+      if (my !== token) { URL.revokeObjectURL(r.url); return; }
       const old = stillUrl;
-      stillUrl = u;
+      stillUrl = r.url;
+      themeBrand = r.brand || "0 0% 55%";
       applyStatic();
+      applyTheme();
       if (old) setTimeout(() => URL.revokeObjectURL(old), 2000);
     }).catch((e) => console.warn("[custom-background] widget still failed:", e));
   }
@@ -197,6 +308,11 @@ HOOK_JS = r"""(() => {
     pending = true;
     requestAnimationFrame(() => { pending = false; applyStatic(); });
   }).observe(document.documentElement, {childList:true, subtree:true});
+
+  // The dashboard rewrites its theme variables when the built-in wallpaper changes
+  // (or after login); put ours back.
+  new MutationObserver(() => applyTheme())
+    .observe(document.documentElement, {attributes:true, attributeFilter:["style"]});
 
   update();
   setInterval(update, 5000);
@@ -249,6 +365,11 @@ select{background:#292929;color:#fff;border:1px solid #444;border-radius:8px;pad
 <option>center</option><option>top</option><option>bottom</option>
 <option>left</option><option>right</option>
 </select>
+
+<label style="display:flex;gap:8px;align-items:center;margin-top:14px;cursor:pointer">
+<input id="theme" type="checkbox" checked style="width:auto;margin:0">
+Match Umbrel's accent colours to the background
+</label>
 
 <br><br>
 <div class="row">
@@ -314,6 +435,7 @@ async function load() {
     $("darkness").value = settings.darkness;
     $("darknessValue").textContent = settings.darkness + "%";
     $("position").value = settings.position;
+    $("theme").checked = settings.theme !== false;
     renderPreview(s);
 
     const files = await api("/api/files");
@@ -353,7 +475,8 @@ async function applyBg(name) {
     body:JSON.stringify({
       name,
       darkness:+$("darkness").value,
-      position:$("position").value
+      position:$("position").value,
+      theme:$("theme").checked
     })
   });
   const text = await r.text();
@@ -371,7 +494,8 @@ async function restore() {
     body:JSON.stringify({
       name:null,
       darkness:+$("darkness").value,
-      position:$("position").value
+      position:$("position").value,
+      theme:$("theme").checked
     })
   });
   await load();
@@ -403,16 +527,22 @@ $("position").onchange = async () => {
   if (settings.current) await applyBg(settings.current);
 };
 
+$("theme").onchange = async () => {
+  if (settings.current) await applyBg(settings.current);
+};
+
 load();
 </script>
 </body>
 </html>"""
 
+DEFAULT_STATE = {"current": None, "darkness": 35, "position": "center", "theme": True}
+
 def read_state():
     try:
-        return json.loads(STATE_FILE.read_text())
+        return {**DEFAULT_STATE, **json.loads(STATE_FILE.read_text())}
     except Exception:
-        return {"current": None, "darkness": 35, "position": "center"}
+        return dict(DEFAULT_STATE)
 
 def write_state(s):
     STATE_FILE.write_text(json.dumps(s, indent=2))
@@ -449,7 +579,7 @@ def install_integration():
             st = read_state()
             write_if_changed(
                 CB_DIR / "state.json",
-                json.dumps({k: st.get(k) for k in ("current", "darkness", "position")}),
+                json.dumps({k: st.get(k) for k in ("current", "darkness", "position", "theme")}),
             )
 
             link = CB_DIR / "media"
@@ -658,7 +788,8 @@ class Handler(BaseHTTPRequestHandler):
                 if position not in {"center","top","bottom","left","right"}:
                     position = "center"
 
-                s = {"current": name, "darkness": darkness, "position": position}
+                theme = bool(body.get("theme", True))
+                s = {"current": name, "darkness": darkness, "position": position, "theme": theme}
                 write_state(s)
                 ok, message = install_integration()
                 s["integration"] = message
