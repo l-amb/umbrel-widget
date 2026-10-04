@@ -1,18 +1,41 @@
-manifestVersion: "1.0.0"
+manifestVersion: 1
 id: widgets-custom-background
+category: utilities
 name: Custom Background
-tagline: Use MP4, PNG and JPG backgrounds on your Umbrel dashboard
-category: Utilities
-version: "1.0.0"
+version: "1.1.0"
+tagline: Use your own video or image as your dashboard background
+description: |-
+  Make umbrelOS look the way you want. Custom Background lets you set your own video or image as the background of the whole dashboard, with the widgets, dock and accent colours following along.
+
+  What you get:
+  • Videos and images: MP4, PNG, JPG and JPEG, up to 1 GB per file.
+  • Easy uploads: drag and drop files anywhere on the page and watch the progress. Everything you add stays in a library you can switch between with one click.
+  • Fine control: adjust darkness and position with a live preview, so you can see the result before you commit.
+  • A matching look: the frosted-glass widgets pick up your background, and Umbrel's accent colours (buttons, toggles, progress rings and the Settings screens) can be tinted to suit it. The colour matching can be switched off at any time.
+  • Instant changes: open dashboards update within a few seconds, with no reload.
+  • Built-in notifications: clear messages for every action, with Undo when you change your mind.
+  • Safe to try: "Restore Umbrel default" brings back Umbrel's own wallpaper and theme in one click.
+
+  Good to know:
+  • Your files are stored on your Umbrel and survive reboots and app updates.
+  • The app works by adding a small script to the umbrelOS dashboard files, so it needs write access to that folder. If an umbrelOS update replaces those files, the app puts its script back automatically, usually within a minute. If it ever shows "Dashboard not connected", press Try again.
+  • Backgrounds are served by the dashboard itself, so anyone who can open your Umbrel's dashboard on your network can load them.
+  • This is an unofficial community app and is not affiliated with Umbrel.
+developer: l-amb
+website: https://github.com/l-amb/umbrel-widget
+repo: https://github.com/l-amb/umbrel-widget
+support: https://github.com/l-amb/umbrel-widget/issues
+submitter: l-amb
 port: 38888
-description: >-
-  Upload and manage custom MP4, PNG, JPG and JPEG backgrounds for the
-  umbrelOS 2.0 dashboard. The selected background persists across reboots.
-website: https://github.com/
-developer: Community
-submitter: Community
-support: https://github.com/
-repo: https://github.com/
-gallery: []
-permissions:
-  - Docker
+icon: https://raw.githubusercontent.com/l-amb/umbrel-widget/master/widgets-custom-background/icon.svg
+gallery:
+  - https://raw.githubusercontent.com/l-amb/umbrel-widget/master/widgets-custom-background/1.jpg
+  - https://raw.githubusercontent.com/l-amb/umbrel-widget/master/widgets-custom-background/2.jpg
+  - https://raw.githubusercontent.com/l-amb/umbrel-widget/master/widgets-custom-background/3.jpg
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+releaseNotes: |-
+  A redesigned interface with built-in notifications, drag-and-drop uploads with progress, a live preview and in-app confirmations.
+  Backgrounds now apply straight to the dashboard, and the widgets, dock and accent colours match them.
+  Fixes the app failing to start, and "Apply" doing nothing.
